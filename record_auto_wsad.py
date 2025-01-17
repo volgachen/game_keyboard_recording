@@ -44,14 +44,24 @@ class Input(ctypes.Structure):
                 ("ii", InputI)]
 
 class GameRecorder:
-    def __init__(self, game_window_title=None, target_size=(320, 240)):
+    def __init__(
+            self,
+            game_window_title=None,
+            target_size=(320, 240),
+            window_size=(1280, 720),
+            interval=0.05,
+            frame_limit=10000,
+        ):
         """
         初始化游戏录制器
         :param game_window_title: 游戏窗口标题，如果为None则录制全屏
         :param target_size: 保存的图像大小
         """
         self.window_title = game_window_title
+        self.window_size = window_size
         self.target_size = target_size
+        self.interval = interval
+        self.frame_limit = frame_limit
         self.is_recording = False
         self.stop_flag = Event()
         self.auto_input = False  # 控制自动输入的标志
@@ -170,8 +180,8 @@ class GameRecorder:
         return {
             'top': 0,
             'left': 0,
-            'width': 2560,
-            'height': 1600
+            'width': self.window_size[0],
+            'height': self.window_size[1],
         }
 
     def activate_game_window(self):
@@ -314,9 +324,18 @@ class GameRecorder:
                 self.record_thread.join()
             print("录制暂停!")
 
+    def renew_h5py(self):
+        """
+        重新创建一个新的HDF5文件
+        """
+        if self.h5file is not None:
+            self.h5file.close()
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        print(f"创建新的记录文件: record_{stamp}.h5")
+        self.h5file = h5py.File(f"{self.output_dir}/record_{stamp}.h5", 'w')
+
     def record_loop(self):
         window_rect = self._get_window_rect()
-        h5file = h5py.File(f"{self.output_dir}/record.h5", 'w')
         frame_count = 0
         
         game_keys = keyboard.Listener(
@@ -341,17 +360,20 @@ class GameRecorder:
                         dtype=np.float32
                     )
                     
-                    h5file.create_dataset(f"frame_{frame_count}_x", data=frame)
-                    h5file.create_dataset(f"frame_{frame_count}_y", data=state_array)
+                    self.h5file.create_dataset(f"frame_{frame_count}_x", data=frame)
+                    self.h5file.create_dataset(f"frame_{frame_count}_y", data=state_array)
                     
                     frame_count += 1
-                    time.sleep(0.03)
+                    time.sleep(self.interval)
+                    if frame_count >= self.frame_limit:
+                        self.renew_h5py()
+                        frame_count = 0
                     
                 except Exception as e:
                     print(f"录制出错: {e}")
                     break
         
-        h5file.close()
+        self.h5file.close()
         game_keys.stop()
 
     def quit_program(self):
@@ -375,6 +397,6 @@ class GameRecorder:
         self.hotkey_listener.join()
 
 if __name__ == "__main__":
-    recorder = GameRecorder()
+    recorder = GameRecorder(target_size=(1280, 720), interval=0.05)
     # recorder = GameRecorder(game_window_title="游戏窗口标题")
     recorder.start()
